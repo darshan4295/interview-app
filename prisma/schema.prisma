@@ -1,0 +1,105 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CANDIDATE
+  INTERVIEWER
+  ADMIN
+}
+
+model User {
+  id             String    @id @default(cuid())
+  name           String
+  email          String    @unique
+  password       String
+  role           UserRole
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  // Relations
+  candidateInterviews     Interview[] @relation("CandidateInterviews")
+  interviewerInterviews   Interview[] @relation("InterviewerInterviews")
+  codingAssessments       CodingAssessment[] @relation("CandidateAssessments")
+  reviewedAssessments     CodingAssessment[] @relation("ReviewerAssessments")
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum InterviewType {
+  TECHNICAL
+  MANAGERIAL
+}
+
+model Interview {
+  id             String         @id @default(cuid())
+  title          String
+  type           InterviewType
+  status         InterviewStatus
+  scheduledAt    DateTime
+  duration       Int            // In minutes
+  roomId         String?        // VideoSDK room ID
+  transcript     String?        // Interview transcript
+  aiAnalysis     Json?          // AI analysis results
+  feedback       String?        // Interviewer feedback
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  
+  // Relations
+  candidateId    String
+  candidate      User           @relation("CandidateInterviews", fields: [candidateId], references: [id])
+  interviewerId  String
+  interviewer    User           @relation("InterviewerInterviews", fields: [interviewerId], references: [id])
+}
+
+enum AssessmentStatus {
+  PENDING
+  SUBMITTED
+  REVIEWED
+}
+
+model CodingAssessment {
+  id             String           @id @default(cuid())
+  title          String
+  description    String
+  requirements   String
+  codeSubmission String?          // Submitted code
+  aiAnalysis     Json?            // AI analysis of code
+  feedback       String?          // Reviewer feedback
+  status         AssessmentStatus
+  score          Int?             // Score out of 100
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  
+  // Relations
+  candidateId    String
+  candidate      User             @relation("CandidateAssessments", fields: [candidateId], references: [id])
+  reviewerId     String?
+  reviewer       User?            @relation("ReviewerAssessments", fields: [reviewerId], references: [id])
+}
+
+model FinalReport {
+  id             String    @id @default(cuid())
+  candidateId    String    @unique
+  interviewScore Int       // Score out of 100
+  codingScore    Int       // Score out of 100
+  managerialScore Int      // Score out of 100
+  overallRating  Int       // Score out of 100
+  strengths      String[]
+  weaknesses     String[]
+  recommendation String    // HIRE, REJECT, CONSIDER
+  suggestedHike  Float?    // Percentage
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
