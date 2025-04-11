@@ -432,3 +432,4 @@ export default function CandidateReportPage({ params }: { params: { id: string }
       )}
     </div>
   );
+}

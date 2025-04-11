@@ -390,4 +390,5 @@ Feedback: ${qa.feedback}
         )}
       </div>
     </div>
-  );
+  )
+}
