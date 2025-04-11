@@ -1,15 +1,16 @@
 // src/app/api/auth/[...nextauth]/route.ts
 
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { NextAuthOptions } from "next-auth";
+import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
-import { NextResponse } from "next/server";
-import NextAuth from "next-auth/next";
 
-export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+// Remove PrismaAdapter import if it's causing issues
+// import { PrismaAdapter } from "@auth/prisma-adapter";
+
+export const authOptions = {
+  // Don't use the PrismaAdapter here if it's causing build issues
+  // adapter: PrismaAdapter(prisma),
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -22,31 +23,36 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: {
-            email: credentials.email,
-          },
-        });
+        try {
+          const user = await prisma.user.findUnique({
+            where: {
+              email: credentials.email,
+            },
+          });
 
-        if (!user) {
+          if (!user) {
+            return null;
+          }
+
+          const passwordMatch = await bcrypt.compare(
+            credentials.password,
+            user.password
+          );
+
+          if (!passwordMatch) {
+            return null;
+          }
+
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
           return null;
         }
-
-        const passwordMatch = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
-
-        if (!passwordMatch) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-        };
       },
     }),
   ],
@@ -75,5 +81,9 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
 };
 
+// Export the handlers using a more compatible approach
 const handler = NextAuth(authOptions);
 export { handler as GET, handler as POST };
+
+// Add this to prevent static generation issues
+export const dynamic = 'force-dynamic';

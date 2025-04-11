@@ -33,49 +33,74 @@ export default function InterviewerDashboard() {
   const [upcomingInterviews, setUpcomingInterviews] = useState<Interview[]>([]);
   const [pendingAssessments, setPendingAssessments] = useState<Assessment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      if (!session?.user?.id) return;
+      
       try {
-        // Fetch upcoming interviews
+        // Fetch interviews
+        console.log("Fetching interviewer interviews...");
         const interviewsResponse = await fetch("/api/interviews/interviewer");
+        if (!interviewsResponse.ok) {
+          throw new Error("Failed to fetch interviews");
+        }
         const interviewsData = await interviewsResponse.json();
         
-        // Fetch pending assessments
-        const assessmentsResponse = await fetch("/api/assessments/interviewer");
-        const assessmentsData = await assessmentsResponse.json();
+        console.log("Raw interviews data:", interviewsData);
         
-        // Filter for upcoming interviews
-        const upcoming = interviewsData.filter(
+        // Filter for upcoming interviews - use timestamp comparison for more reliability
+        const currentTime = new Date().getTime();
+        const upcoming = Array.isArray(interviewsData) ? interviewsData.filter(
           (interview: Interview) => 
             interview.status === "SCHEDULED" && 
-            new Date(interview.scheduledAt) > new Date()
-        );
+            new Date(interview.scheduledAt).getTime() > currentTime
+        ) : [];
+        
+        console.log("Filtered upcoming interviews:", upcoming);
+        setUpcomingInterviews(upcoming);
+        
+        // Fetch assessments for review
+        console.log("Fetching interviewer assessments...");
+        const assessmentsResponse = await fetch("/api/assessments/interviewer");
+        if (!assessmentsResponse.ok) {
+          throw new Error("Failed to fetch assessments");
+        }
+        const assessmentsData = await assessmentsResponse.json();
+        
+        console.log("Raw assessments data:", assessmentsData);
         
         // Filter for submitted assessments that need review
-        const pending = assessmentsData.filter(
-          (assessment: Assessment) => 
-            assessment.status === "SUBMITTED"
-        );
+        const pending = Array.isArray(assessmentsData) ? assessmentsData.filter(
+          (assessment: Assessment) => assessment.status === "SUBMITTED"
+        ) : [];
         
-        setUpcomingInterviews(upcoming);
+        console.log("Filtered pending assessments:", pending);
         setPendingAssessments(pending);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
+        setError("Failed to load dashboard data");
       } finally {
         setIsLoading(false);
       }
     };
 
-    if (session?.user) {
-      fetchDashboardData();
-    }
+    fetchDashboardData();
   }, [session]);
 
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-50 text-red-700 rounded-md">
+        <p>{error}</p>
       </div>
     );
   }
@@ -93,7 +118,7 @@ export default function InterviewerDashboard() {
             <h2 className="text-lg font-medium text-gray-900">Upcoming Interviews</h2>
           </div>
           <div className="px-4 py-5 sm:p-6">
-            {upcomingInterviews.length > 0 ? (
+            {Array.isArray(upcomingInterviews) && upcomingInterviews.length > 0 ? (
               <ul className="divide-y divide-gray-200">
                 {upcomingInterviews.map((interview) => (
                   <li key={interview.id} className="py-4">
@@ -101,7 +126,7 @@ export default function InterviewerDashboard() {
                       <div>
                         <p className="text-sm font-medium text-gray-900">{interview.title}</p>
                         <p className="text-sm text-gray-500">
-                          Candidate: {interview.candidate.name}
+                          Candidate: {interview.candidate?.name || "Unknown"}
                         </p>
                         <p className="text-sm text-gray-500">
                           {new Date(interview.scheduledAt).toLocaleString()} - {interview.type === "TECHNICAL" ? "Technical" : "Managerial"} Interview
@@ -138,7 +163,7 @@ export default function InterviewerDashboard() {
             <h2 className="text-lg font-medium text-gray-900">Assessments to Review</h2>
           </div>
           <div className="px-4 py-5 sm:p-6">
-            {pendingAssessments.length > 0 ? (
+            {Array.isArray(pendingAssessments) && pendingAssessments.length > 0 ? (
               <ul className="divide-y divide-gray-200">
                 {pendingAssessments.map((assessment) => (
                   <li key={assessment.id} className="py-4">
@@ -146,7 +171,7 @@ export default function InterviewerDashboard() {
                       <div>
                         <p className="text-sm font-medium text-gray-900">{assessment.title}</p>
                         <p className="text-sm text-gray-500">
-                          Candidate: {assessment.candidate.name}
+                          Candidate: {assessment.candidate?.name || "Unknown"}
                         </p>
                         <p className="text-sm text-gray-500">Status: Submitted</p>
                       </div>

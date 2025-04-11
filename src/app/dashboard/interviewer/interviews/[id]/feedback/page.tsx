@@ -23,6 +23,9 @@ type InterviewData = {
 };
 
 export default function InterviewFeedbackPage({ params }: { params: { id: string } }) {
+  // Extract the interviewId without using React.use
+  const interviewId = params?.id;
+  
   const { data: session } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -41,16 +44,25 @@ export default function InterviewFeedbackPage({ params }: { params: { id: string
   
   useEffect(() => {
     const fetchInterview = async () => {
-      try {
-        if (!session?.user?.id) {
+      // Only proceed if we have the required data
+      if (!interviewId || !session?.user?.id) {
+        if (!interviewId) {
+          setError("Interview ID is missing");
+        } else if (!session?.user?.id) {
           setError("You must be logged in to access this page");
-          return;
         }
+        setLoading(false);
+        return;
+      }
 
-        // Fetch interview details
-        const response = await fetch(`/api/interviews/${params.id}`);
+      try {
+        console.log("Fetching interview details for:", interviewId);
+        const response = await fetch(`/api/interviews/${interviewId}`);
+        
         if (!response.ok) {
-          throw new Error("Failed to fetch interview details");
+          const errorData = await response.json().catch(() => ({}));
+          console.error("Error response:", errorData);
+          throw new Error(errorData.message || "Failed to fetch interview details");
         }
         
         const data = await response.json();
@@ -98,13 +110,15 @@ Feedback: ${qa.feedback}
     };
 
     fetchInterview();
-  }, [session, params.id, setValue]);
+  }, [session, interviewId, setValue]);
   
   const onSubmit = async (data: { feedback: string }) => {
+    if (!interviewId) return;
+    
     try {
       setIsSubmitting(true);
       
-      const response = await fetch(`/api/interviews/${params.id}/feedback`, {
+      const response = await fetch(`/api/interviews/${interviewId}/feedback`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -156,26 +170,7 @@ Feedback: ${qa.feedback}
   if (!interview) {
     return null;
   }
-  
-  if (interview.status === "SCHEDULED") {
-    return (
-      <div className="container mx-auto px-4 py-6">
-        <div className="bg-white p-8 rounded-lg shadow-md max-w-md mx-auto">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Interview Not Completed</h2>
-          <p className="text-gray-700 mb-6">
-            This interview has not been completed yet. You can provide feedback once the interview is finished.
-          </p>
-          <button
-            onClick={() => router.push("/dashboard/interviewer/interviews")}
-            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700"
-          >
-            Return to Interviews
-          </button>
-        </div>
-      </div>
-    );
-  }
-  
+
   return (
     <div className="container mx-auto px-4 py-6">
       <div className="mb-6">
@@ -382,7 +377,15 @@ Feedback: ${qa.feedback}
                   disabled={isSubmitting}
                   className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                 >
-                  {isSubmitting ? "Submitting..." : interview.feedback ? "Update Feedback" : "Submit Feedback"}
+                  {isSubmitting ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Submitting...
+                    </span>
+                  ) : interview.feedback ? "Update Feedback" : "Submit Feedback"}
                 </button>
               </div>
             </form>
@@ -390,5 +393,5 @@ Feedback: ${qa.feedback}
         )}
       </div>
     </div>
-  )
+  );
 }

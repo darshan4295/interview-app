@@ -17,15 +17,28 @@ export async function GET(req: NextRequest) {
       );
     }
     
-    // Generate token
-    const token = await getVideoSDKToken();
-    
-    return NextResponse.json({ token });
-    
+    // Generate token with better error handling
+    try {
+      const token = await getVideoSDKToken();
+      return NextResponse.json({ token });
+    } catch (tokenError) {
+      console.error("Error in token generation:", tokenError);
+      
+      // For development, return a mock token if actual generation fails
+      if (process.env.NODE_ENV !== 'production') {
+        console.log("Using fallback mock token for development");
+        return NextResponse.json({ 
+          token: "mock_video_sdk_token_for_development",
+          message: "Using mock token - VideoSDK API unavailable"
+        });
+      }
+      
+      throw tokenError;
+    }
   } catch (error) {
     console.error("Error generating VideoSDK token:", error);
     return NextResponse.json(
-      { message: "Failed to generate token" }, 
+      { message: "Failed to generate token", error: String(error) }, 
       { status: 500 }
     );
   }

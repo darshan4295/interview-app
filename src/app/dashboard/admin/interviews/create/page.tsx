@@ -6,6 +6,8 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 
 type User = {
   id: string;
@@ -13,6 +15,29 @@ type User = {
   email: string;
   role: string;
 };
+
+// Schema for form validation
+const scheduleSchema = z.object({
+  title: z.string().min(3, { message: "Title must be at least 3 characters" }),
+  type: z.enum(["TECHNICAL", "MANAGERIAL"], { 
+    message: "Please select an interview type" 
+  }),
+  candidateId: z.string({ 
+    message: "Please select a candidate" 
+  }),
+  interviewerId: z.string({ 
+    message: "Please select an interviewer" 
+  }),
+  date: z.string({ 
+    message: "Please select a date" 
+  }),
+  time: z.string({ 
+    message: "Please select a time" 
+  }),
+  duration: z.number().min(15).max(120)
+});
+
+type FormValues = z.infer<typeof scheduleSchema>;
 
 export default function ScheduleInterviewPage() {
   const { data: session } = useSession();
@@ -27,25 +52,49 @@ export default function ScheduleInterviewPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm();
+    setError: setFormError,
+  } = useForm<FormValues>({
+    resolver: zodResolver(scheduleSchema),
+    defaultValues: {
+      title: "",
+      type: undefined,
+      candidateId: "",
+      interviewerId: "",
+      date: new Date().toISOString().split("T")[0],
+      time: "10:00",
+      duration: 60
+    }
+  });
 
   useEffect(() => {
     const fetchUsers = async () => {
+      if (!session?.user?.id) return;
+      
       try {
+        if (session.user.role !== "ADMIN") {
+          setError("You do not have permission to access this page.");
+          setIsLoading(false);
+          return;
+        }
+
         // Fetch candidates
+        console.log("Fetching candidates...");
         const candidatesResponse = await fetch("/api/admin/users?role=CANDIDATE");
         if (!candidatesResponse.ok) {
           throw new Error("Failed to fetch candidates");
         }
         const candidatesData = await candidatesResponse.json();
+        console.log(`Found ${candidatesData.length} candidates`);
         setCandidates(candidatesData);
 
         // Fetch interviewers
+        console.log("Fetching interviewers...");
         const interviewersResponse = await fetch("/api/admin/users?role=INTERVIEWER");
         if (!interviewersResponse.ok) {
           throw new Error("Failed to fetch interviewers");
         }
         const interviewersData = await interviewersResponse.json();
+        console.log(`Found ${interviewersData.length} interviewers`);
         setInterviewers(interviewersData);
 
         setIsLoading(false);
@@ -56,41 +105,60 @@ export default function ScheduleInterviewPage() {
       }
     };
 
-    if (session?.user?.role === "ADMIN") {
-      fetchUsers();
-    } else {
-      setError("You do not have permission to access this page.");
-      setIsLoading(false);
-    }
+    fetchUsers();
   }, [session]);
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: FormValues) => {
+    console.log("Form submitted with data:", data);
+    setIsSubmitting(true);
+    setError(null);
+    
     try {
-      setIsSubmitting(true);
+      // Create interview date by combining date and time
+      const scheduledAt = new Date(`${data.date}T${data.time}`);
+      console.log("Scheduled at:", scheduledAt.toISOString());
       
+      // Validate that the interview is in the future
+      if (scheduledAt <= new Date()) {
+        setError("Interview must be scheduled for a future date and time");
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Create the request body
+      const requestBody = {
+        title: data.title,
+        type: data.type,
+        candidateId: data.candidateId,
+        interviewerId: data.interviewerId,
+        scheduledAt: scheduledAt.toISOString(),
+        duration: data.duration
+      };
+      
+      console.log("Sending request with body:", requestBody);
+      
+      // Send the request to create the interview
       const response = await fetch("/api/interviews", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          title: data.title,
-          type: data.type,
-          candidateId: data.candidateId,
-          interviewerId: data.interviewerId,
-          scheduledAt: new Date(data.date + "T" + data.time).toISOString(),
-          duration: parseInt(data.duration),
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      const responseData = await response.json();
+      console.log("API response:", responseData);
+
       if (!response.ok) {
-        throw new Error("Failed to schedule interview");
+        throw new Error(responseData.message || "Failed to schedule interview");
       }
 
+      // Success - redirect to interviews list
+      console.log("Interview scheduled successfully");
       router.push("/dashboard/admin/interviews?scheduled=true");
     } catch (error) {
       console.error("Error scheduling interview:", error);
-      setError("Failed to schedule interview. Please try again.");
+      setError(error instanceof Error ? error.message : "Failed to schedule interview. Please try again.");
       setIsSubmitting(false);
     }
   };
@@ -103,7 +171,7 @@ export default function ScheduleInterviewPage() {
     );
   }
 
-  if (error) {
+  if (error && !isSubmitting) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-gray-100">
         <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
@@ -128,6 +196,21 @@ export default function ScheduleInterviewPage() {
 
       <div className="bg-white rounded-lg shadow-md">
         <div className="p-6">
+          {error && (
+            <div className="mb-6 bg-red-50 border-l-4 border-red-400 p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit(onSubmit)}>
             <div className="grid grid-cols-1 gap-6 mt-4">
               <div>
@@ -136,13 +219,13 @@ export default function ScheduleInterviewPage() {
                 </label>
                 <input
                   type="text"
-                  {...register("title", { required: "Title is required" })}
+                  {...register("title")}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="e.g., Frontend Developer Interview"
                 />
                 {errors.title && (
                   <p className="mt-1 text-sm text-red-600">
-                    {errors.title.message as string}
+                    {errors.title.message}
                   </p>
                 )}
               </div>
@@ -152,7 +235,7 @@ export default function ScheduleInterviewPage() {
                   Interview Type
                 </label>
                 <select
-                  {...register("type", { required: "Type is required" })}
+                  {...register("type")}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 >
                   <option value="">Select interview type</option>
@@ -161,7 +244,7 @@ export default function ScheduleInterviewPage() {
                 </select>
                 {errors.type && (
                   <p className="mt-1 text-sm text-red-600">
-                    {errors.type.message as string}
+                    {errors.type.message}
                   </p>
                 )}
               </div>
@@ -171,7 +254,7 @@ export default function ScheduleInterviewPage() {
                   Candidate
                 </label>
                 <select
-                  {...register("candidateId", { required: "Candidate is required" })}
+                  {...register("candidateId")}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 >
                   <option value="">Select candidate</option>
@@ -183,7 +266,7 @@ export default function ScheduleInterviewPage() {
                 </select>
                 {errors.candidateId && (
                   <p className="mt-1 text-sm text-red-600">
-                    {errors.candidateId.message as string}
+                    {errors.candidateId.message}
                   </p>
                 )}
               </div>
@@ -193,7 +276,7 @@ export default function ScheduleInterviewPage() {
                   Interviewer
                 </label>
                 <select
-                  {...register("interviewerId", { required: "Interviewer is required" })}
+                  {...register("interviewerId")}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 >
                   <option value="">Select interviewer</option>
@@ -205,7 +288,7 @@ export default function ScheduleInterviewPage() {
                 </select>
                 {errors.interviewerId && (
                   <p className="mt-1 text-sm text-red-600">
-                    {errors.interviewerId.message as string}
+                    {errors.interviewerId.message}
                   </p>
                 )}
               </div>
@@ -217,13 +300,13 @@ export default function ScheduleInterviewPage() {
                   </label>
                   <input
                     type="date"
-                    {...register("date", { required: "Date is required" })}
+                    {...register("date")}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                     min={new Date().toISOString().split("T")[0]}
                   />
                   {errors.date && (
                     <p className="mt-1 text-sm text-red-600">
-                      {errors.date.message as string}
+                      {errors.date.message}
                     </p>
                   )}
                 </div>
@@ -234,12 +317,12 @@ export default function ScheduleInterviewPage() {
                   </label>
                   <input
                     type="time"
-                    {...register("time", { required: "Time is required" })}
+                    {...register("time")}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   />
                   {errors.time && (
                     <p className="mt-1 text-sm text-red-600">
-                      {errors.time.message as string}
+                      {errors.time.message}
                     </p>
                   )}
                 </div>
@@ -251,11 +334,7 @@ export default function ScheduleInterviewPage() {
                 </label>
                 <input
                   type="number"
-                  {...register("duration", {
-                    required: "Duration is required",
-                    min: { value: 15, message: "Minimum duration is 15 minutes" },
-                    max: { value: 120, message: "Maximum duration is 120 minutes" },
-                  })}
+                  {...register("duration", { valueAsNumber: true })}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="60"
                   min="15"
@@ -263,7 +342,7 @@ export default function ScheduleInterviewPage() {
                 />
                 {errors.duration && (
                   <p className="mt-1 text-sm text-red-600">
-                    {errors.duration.message as string}
+                    {errors.duration.message}
                   </p>
                 )}
               </div>
@@ -282,7 +361,15 @@ export default function ScheduleInterviewPage() {
                 disabled={isSubmitting}
                 className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
               >
-                {isSubmitting ? "Scheduling..." : "Schedule Interview"}
+                {isSubmitting ? (
+                  <span className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Scheduling...
+                  </span>
+                ) : "Schedule Interview"}
               </button>
             </div>
           </form>

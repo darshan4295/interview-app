@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
       );
     }
     
+    console.log("Fetching interviews for interviewer:", session.user.id);
+    
     // Get interviews assigned to this interviewer
     const interviews = await prisma.interview.findMany({
       where: {
@@ -44,12 +46,16 @@ export async function GET(req: NextRequest) {
           select: {
             id: true,
             name: true,
+            email: true,
           },
         },
       },
     });
     
-    return NextResponse.json(interviews);
+    console.log(`Found ${interviews.length} interviews for interviewer`);
+    
+    // Make sure the response is an array even if prisma returns null
+    return NextResponse.json(interviews || []);
     
   } catch (error) {
     console.error("Error fetching interviewer interviews:", error);
